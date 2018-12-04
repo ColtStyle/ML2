@@ -2,8 +2,11 @@ package model;
 
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
@@ -163,8 +166,9 @@ public class DataAccess implements AutoCloseable {
       
       // ...
       // create tables
-      sql = "CREATE TABLE prices (priceID int, price int) engine = 'innodb'";
+      sql = "CREATE TABLE prices (priceID int, price float) engine = 'innodb'";
       statement.executeUpdate(sql);
+      
       sql = "CREATE TABLE reservations(seatID int, priceID int, customerID int) engine = 'innodb'";
       statement.executeUpdate(sql);
       
@@ -202,9 +206,45 @@ public class DataAccess implements AutoCloseable {
    * @throws DataAccessException if an unrecoverable error occurs
    */
   public List<Float> getPriceList() throws DataAccessException {
-    // TODO
-    return Collections.EMPTY_LIST;
-  }
+
+	  Statement statement = null;
+	  String query = null;
+	  List<Float> allPrices = new ArrayList<Float>();
+	  
+	  try {
+		  connection.setAutoCommit(false);
+	  }
+	  catch(SQLException e) {
+		  System.err.println(e.getMessage());
+		  throw new DataAccessException(e);
+	  }
+	  
+	  try {
+		  
+		  	statement = connection.createStatement();
+		  	query = "SELECT price FROM prices";
+		  	ResultSet rs = statement.executeQuery(query);
+		  	connection.commit();
+		  	
+		  	while(rs.next())
+		  	{	
+				  System.out.println(rs.getFloat(1));
+				  allPrices.add(rs.getFloat(1));
+			}
+			  
+			if(allPrices.size() == 0)
+			{
+				return Collections.EMPTY_LIST;
+			}
+			else return allPrices;
+		 		  
+	  }
+	  
+	  catch(SQLException e) {
+		System.err.println(e.getMessage());
+		throw new DataAccessException(e);
+	  }
+	}
 
   /**
    * Returns the available seats in the specified mode. Two modes are provided:
@@ -230,8 +270,67 @@ public class DataAccess implements AutoCloseable {
    */
   public List<Integer> getAvailableSeats(boolean stable) throws
       DataAccessException {
-    // TODO
-    return Collections.EMPTY_LIST;
+	  
+	  Statement statement = null;
+	  String query = null;
+	  List<Integer> availableSeats = new ArrayList<Integer>();
+	  
+	  try {
+		  connection.setAutoCommit(false);
+	  }
+	  catch(SQLException e) {
+		  System.err.println(e.getMessage());
+		  throw new DataAccessException(e);
+	  }
+	  
+	  try {
+		  if(stable)
+		  {			  
+			  statement = connection.createStatement();
+			  query = "SELECT seatID FROM reservations WHERE (priceID IS NULL) OR (customerID IS NULL)";
+			  ResultSet rs = statement.executeQuery(query);
+			  
+			  while(rs.next())
+			  {	
+				  System.out.println(rs.getInt(1));
+				  availableSeats.add(rs.getInt(1));
+			  }
+			  
+			  if(availableSeats.size() == 0)
+			  {
+				  return Collections.EMPTY_LIST;
+			  }
+			  else return availableSeats;
+		  }
+		  		  
+		  else 
+		  {
+			  
+			  statement = connection.createStatement();
+			  query = "SELECT seatID FROM reservations WHERE (priceID IS NULL) OR (customerID IS NULL)";
+			  ResultSet rs = statement.executeQuery(query);
+			  connection.commit();
+			  
+			  while(rs.next())
+			  {	
+				  System.out.println(rs.getInt(1));
+				  availableSeats.add(rs.getInt(1));
+			  }
+			  
+			  if(availableSeats.size() == 0)
+			  {
+				  return Collections.EMPTY_LIST;
+			  }
+			  else return availableSeats;
+		  }
+		  
+	  }
+	  
+	  catch(SQLException e) {
+		System.err.println(e.getMessage());
+		throw new DataAccessException(e);
+	  }
+	  
   }
 
   /**
@@ -338,7 +437,16 @@ public class DataAccess implements AutoCloseable {
    */
   @Override
   public void close() throws DataAccessException {
-    // TODO
+	 
+	  try {
+		  connection.close();
+		  System.out.println("Connection closed");
+	  }
+	  
+	  catch(SQLException e) {
+		  System.err.println("sql: " + e);
+		  throw new DataAccessException(e);
+	  }
+	  
   }
-
 }
