@@ -2,11 +2,11 @@ package model;
 
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
@@ -207,12 +207,13 @@ public class DataAccess implements AutoCloseable {
    */
   public List<Float> getPriceList() throws DataAccessException {
 
-	  Statement statement = null;
+	  PreparedStatement statement = null;
 	  String query = null;
 	  List<Float> allPrices = new ArrayList<Float>();
 	  
 	  try {
 		  connection.setAutoCommit(false);
+		  connection.setTransactionIsolation(connection.TRANSACTION_SERIALIZABLE);
 	  }
 	  catch(SQLException e) {
 		  System.err.println(e.getMessage());
@@ -221,14 +222,13 @@ public class DataAccess implements AutoCloseable {
 	  
 	  try {
 		  
-		  	statement = connection.createStatement();
 		  	query = "SELECT price FROM prices";
+			statement = connection.prepareStatement(query);
 		  	ResultSet rs = statement.executeQuery(query);
 		  	connection.commit();
 		  	
 		  	while(rs.next())
 		  	{	
-				  System.out.println(rs.getFloat(1));
 				  allPrices.add(rs.getFloat(1));
 			}
 			  
@@ -271,12 +271,13 @@ public class DataAccess implements AutoCloseable {
   public List<Integer> getAvailableSeats(boolean stable) throws
       DataAccessException {
 	  
-	  Statement statement = null;
+	  PreparedStatement statement = null;
 	  String query = null;
 	  List<Integer> availableSeats = new ArrayList<Integer>();
 	  
 	  try {
 		  connection.setAutoCommit(false);
+		  connection.setTransactionIsolation(connection.TRANSACTION_SERIALIZABLE);
 	  }
 	  catch(SQLException e) {
 		  System.err.println(e.getMessage());
@@ -286,13 +287,12 @@ public class DataAccess implements AutoCloseable {
 	  try {
 		  if(stable)
 		  {			  
-			  statement = connection.createStatement();
 			  query = "SELECT seatID FROM reservations WHERE (priceID IS NULL) OR (customer = '')";
+			  statement = connection.prepareStatement(query);
 			  ResultSet rs = statement.executeQuery(query);
 			  
 			  while(rs.next())
 			  {	
-				  System.out.println(rs.getInt(1));
 				  availableSeats.add(rs.getInt(1));
 			  }
 			  
@@ -305,15 +305,13 @@ public class DataAccess implements AutoCloseable {
 		  		  
 		  else 
 		  {
-			  
-			  statement = connection.createStatement();
 			  query = "SELECT seatID FROM reservations WHERE (priceID IS NULL) OR (customer = '')";
+			  statement = connection.prepareStatement(query);
 			  ResultSet rs = statement.executeQuery(query);
 			  connection.commit();
 			  
 			  while(rs.next())
 			  {	
-				  System.out.println(rs.getInt(1));
 				  availableSeats.add(rs.getInt(1));
 			  }
 			  
@@ -363,9 +361,161 @@ public class DataAccess implements AutoCloseable {
    */
   public List<Booking> bookSeats(String customer, List<Integer> counts,
       boolean adjoining) throws DataAccessException {
-    // TODO
-    return Collections.EMPTY_LIST;
-  }
+
+	  int i = 0, j = 0;
+	  int wantedSeats = 0;
+	  int adjacentSeats = 0;
+	  
+	  PreparedStatement statement = null;
+	  
+	  List<Booking> seatsReserved = new ArrayList<>();
+	  List<Integer> seatsToBeReserved = new ArrayList<>();
+	  
+	  String query = null;
+	  
+	  try{
+          connection.setAutoCommit(false);
+          connection.setTransactionIsolation(connection.TRANSACTION_SERIALIZABLE);
+      } 
+	  catch(SQLException e){
+          System.err.println(e.getMessage());
+          throw new DataAccessException(e);
+      }
+	  
+	  List<Integer> freeSeats = getAvailableSeats(true);
+	  List<Float> prices = getPriceList();
+	  
+	  for(int k = 0; k < counts.size(); k++)
+	  {
+          wantedSeats += counts.get(k);
+      }
+	  
+	  if(freeSeats.size() < wantedSeats) return Collections.EMPTY_LIST;
+	  
+	  if(adjoining)
+	  {
+		  for(j = 0; j < freeSeats.size() - 1; j++)
+		  {
+			  if(freeSeats.get(j+1) == freeSeats.get(j) + 1)
+			  {
+				  adjacentSeats++;
+				  if(adjacentSeats == wantedSeats) break;
+			  } else {
+				  adjacentSeats = 1;
+			  }
+		  }
+	  
+		  if(adjacentSeats == wantedSeats)
+		  {
+			  for(int l = j - wantedSeats+2; l<j+2; l++)
+			  {
+				  seatsToBeReserved.add(freeSeats.get(l));
+			  }
+			  
+			  while(i < counts.size())
+			  {
+				  for(int m = 0; m < counts.get(i); m++)
+				  {
+					  query = "UPDATE reservations SET customer = '" + customer + "', priceID =" + i + " WHERE seatID = " + seatsToBeReserved.get(0);
+					  
+					  try 
+					  {
+						statement = connection.prepareStatement(query);
+						statement.executeUpdate();				  
+					  }
+					  
+					  catch(SQLException e)
+					  {
+						  System.err.println(e);
+						  throw new DataAccessException(e);
+					  }
+					  
+					  seatsReserved.add(new Booking(seatsToBeReserved.get(0), customer, i, prices.get(i)));
+					  
+					  seatsToBeReserved.remove(0);
+					  
+				  }
+				  
+				  i++;
+			  }
+			  
+			  try {
+	              connection.commit();
+	          } 
+			  catch (SQLException e0) 
+			  {
+	              System.err.println(e0.getMessage());
+	
+	              try 
+	              {
+	                  connection.rollback();
+	              } catch (SQLException e1) 
+	              {
+	                  System.err.println("Rollback error: " + e1.getMessage());
+	                  throw new DataAccessException(e1);
+	              }
+	
+	              throw new DataAccessException(e0);
+	          }
+			  
+			  return seatsReserved;
+			  } else {
+				  return Collections.EMPTY_LIST;
+			  }
+	  } 
+	  
+	  else
+	  {
+		  while(i < counts.size()) 
+		  {
+			  for(int k = 0; k < counts.get(i); k++)
+			  {
+				  query = "UPDATE reservations SET customer = '" + customer + "', priceID = " + i + " WHERE seatID = " + freeSeats.get(0);
+				  
+				  try
+				  {
+					  statement = connection.prepareStatement(query);
+					  statement.executeUpdate();
+				  }
+				  
+				  catch(SQLException e)
+				  {
+					  System.err.println(e.getMessage());
+					  throw new DataAccessException(e);
+				  }
+				  
+				  seatsReserved.add(new Booking(freeSeats.get(0), customer, i, prices.get(i)));
+				  
+				  freeSeats.remove(0);
+				  
+			  }
+			  
+			  i++;
+		  }
+		  
+		  try {
+              connection.commit();
+          } 
+		  catch (SQLException e0) 
+		  {
+              System.err.println(e0.getMessage());
+
+              try 
+              {
+                  connection.rollback();
+              } catch (SQLException e1) 
+              {
+                  System.err.println("Rollback error: " + e1.getMessage());
+                  throw new DataAccessException(e1);
+              }
+
+              throw new DataAccessException(e0);
+          }
+		  
+		  return seatsReserved;
+  
+	  }	  
+}
 
   /**
    * Books the specified seats for the specified customer. The seats to book are
@@ -386,8 +536,82 @@ public class DataAccess implements AutoCloseable {
    */
   public List<Booking> bookSeats(String customer, List<List<Integer>> seatss)
       throws DataAccessException {
-    // TODO
-    return Collections.EMPTY_LIST;
+
+	  boolean isNotReserved = true;
+	  PreparedStatement statement = null;
+      List<Booking> seatsReserved = new ArrayList<>();
+	  String query = null;
+	  
+	  try{
+          connection.setAutoCommit(false);
+          connection.setTransactionIsolation(connection.TRANSACTION_SERIALIZABLE);
+      } 
+	  catch(SQLException e){
+          System.err.println(e.getMessage());
+          throw new DataAccessException(e);
+      }
+	  
+	  List<Float> prices = getPriceList();
+	  List<Integer> freeSeats = getAvailableSeats(true);
+	  
+	  for(int i = 0; i < seatss.size() && isNotReserved == true; i++)
+	  {
+		  for(int j = 0; j < seatss.get(i).size() && isNotReserved == true; j++)
+		  {
+			  
+			  if(freeSeats.indexOf(seatss.get(i).get(j)) == -1)
+			  {
+				  isNotReserved = false;
+			  }
+		  }
+	  }
+	  
+	  if(isNotReserved)
+	  {
+		  for(int i = 0; i < seatss.size(); i++)
+		  {
+			  for(int j = 0; j < seatss.get(i).size(); j++)
+			  {
+                  query = "UPDATE reservations SET customer = '" + customer + "', priceID = " + i + " WHERE seatID = " + seatss.get(i).get(j);
+                  
+                  try 
+                  {
+                	  statement = connection.prepareStatement(query);
+                	  statement.executeUpdate();
+                  }
+                  
+                  catch(SQLException e)
+                  {
+                	  System.err.println(e.getMessage());
+                	  throw new DataAccessException(e);
+                  }
+                  
+                  seatsReserved.add(new Booking(seatss.get(i).get(j), customer, i ,prices.get(i)));
+			  }
+		  }
+		  
+		  try {
+              connection.commit();
+          } 
+		  catch (SQLException e0) 
+		  {
+              System.err.println(e0.getMessage());
+
+              try 
+              {
+                  connection.rollback();
+              } catch (SQLException e1) 
+              {
+                  System.err.println("Rollback error: " + e1.getMessage());
+                  throw new DataAccessException(e1);
+              }
+
+              throw new DataAccessException(e0);
+          }
+          
+          return seatsReserved;
+      }
+      else return Collections.EMPTY_LIST;
   }
 
   /**
@@ -404,12 +628,13 @@ public class DataAccess implements AutoCloseable {
    */
   public List<Booking> getBookings(String customer) throws DataAccessException {
 	  
-	  Statement statement = null;
+	  PreparedStatement statement = null;
 	  String query = null;
 	  List<Booking> bookingsDone = new ArrayList<>();
 	  
 	  try {
 		  connection.setAutoCommit(false);
+		  connection.setTransactionIsolation(connection.TRANSACTION_SERIALIZABLE);
 	  }
 	  
 	  catch(SQLException e) {
@@ -418,10 +643,10 @@ public class DataAccess implements AutoCloseable {
 	  }
 	  
 	  try {
-		  statement = connection.createStatement();
 		  if(customer != "")
 		  {
 			  query = "SELECT seatID, customer, priceID, price FROM reservations INNER JOIN prices ON prices.priceID = reservations.priceID WHERE customer = " + customer;
+			  statement = connection.prepareStatement(query);
 			  ResultSet rs = statement.executeQuery(query);
 			  connection.commit();
 			  
@@ -442,6 +667,7 @@ public class DataAccess implements AutoCloseable {
 		  else 
 		  {
 			  query = "SELECT seatID, customer, priceID, price FROM reservations INNER JOIN prices ON prices.priceID = reservations.priceID";
+			  statement = connection.prepareStatement(query);
 			  ResultSet rs = statement.executeQuery(query);
 			  connection.commit();
 			  
@@ -485,8 +711,71 @@ public class DataAccess implements AutoCloseable {
    * @throws DataAccessException if an unrecoverable error occurs
    */
   public boolean cancelBookings(List<Booking> bookings) throws DataAccessException {
-    // TODO
-    return false;
+	  
+	  PreparedStatement statement = null;
+	  String query = null;
+	  
+	  try {
+		  connection.setAutoCommit(false);
+		  connection.setTransactionIsolation(connection.TRANSACTION_SERIALIZABLE);
+	  }
+	  
+	  catch(SQLException e) {
+		  System.err.println(e.getMessage());
+		  throw new DataAccessException(e);
+	  }
+	  
+	  for(int i = 0; i < bookings.size(); i++)
+	  {
+		  query = "SELECT seatID, customer, priceID, price FROM reservations NATURAL JOIN prices WHERE seatID = " + bookings.get(i).getSeat() + " AND customer = '" + bookings.get(i).getCustomer() + "' AND priceID = " + bookings.get(i).getCategory() + " AND price = " + bookings.get(i).getPrice();
+		  
+		  try
+		  {
+			  statement = connection.prepareStatement(query);
+			  ResultSet rs = statement.executeQuery();
+			  
+			  connection.commit();
+			  
+			  if(!rs.next())
+			  {
+				  return false;
+			  }
+		  }
+		  catch(SQLException e)
+		  {
+			  System.err.println(e.getMessage());
+              throw new DataAccessException(e);
+		  }
+	  }
+	  
+	  
+	  for(int i = 0; i < bookings.size(); i++)
+	  {
+		  
+          query = "UPDATE reservations SET customer = null, priceID = null WHERE seatID = " + bookings.get(i).getSeat() + " AND customer = '" + bookings.get(i).getCustomer() + "' AND priceID = " + bookings.get(i).getCategory();
+          
+          try 
+          {
+              statement = connection.prepareStatement(query);
+              statement.executeUpdate();
+          } 
+          catch (SQLException e) {
+              System.err.println(e.getMessage());     
+              throw new DataAccessException(e);
+          }
+	  }
+	  
+	  try
+	  {
+		  connection.commit();
+	  }
+	  
+	  catch(SQLException e)
+	  {
+		  throw new DataAccessException(e);
+	  }
+	  
+	  return true;
   }
 
   /**
@@ -501,11 +790,10 @@ public class DataAccess implements AutoCloseable {
 	 
 	  try {
 		  connection.close();
-		  System.out.println("Connection closed");
 	  }
 	  
 	  catch(SQLException e) {
-		  System.err.println("sql: " + e);
+		  System.err.println(e.getMessage());
 		  throw new DataAccessException(e);
 	  }
 	  
