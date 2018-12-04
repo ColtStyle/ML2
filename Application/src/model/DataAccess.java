@@ -169,12 +169,12 @@ public class DataAccess implements AutoCloseable {
       sql = "CREATE TABLE prices (priceID int, price float) engine = 'innodb'";
       statement.executeUpdate(sql);
       
-      sql = "CREATE TABLE reservations(seatID int, priceID int, customerID int) engine = 'innodb'";
+      sql = "CREATE TABLE reservations(seatID int, priceID int, customer varchar(20)) engine = 'innodb'";
       statement.executeUpdate(sql);
       
       for(int i = 1; i < seatCount+1; i++)
       {
-    	  sql = "INSERT INTO reservations (seatID, priceID, customerID) VALUES (" + i + ", NULL, NULL)";
+    	  sql = "INSERT INTO reservations (seatID, priceID, customer) VALUES (" + i + ", NULL, '')";
     	  statement.executeUpdate(sql);
       }
       
@@ -287,7 +287,7 @@ public class DataAccess implements AutoCloseable {
 		  if(stable)
 		  {			  
 			  statement = connection.createStatement();
-			  query = "SELECT seatID FROM reservations WHERE (priceID IS NULL) OR (customerID IS NULL)";
+			  query = "SELECT seatID FROM reservations WHERE (priceID IS NULL) OR (customer = '')";
 			  ResultSet rs = statement.executeQuery(query);
 			  
 			  while(rs.next())
@@ -307,7 +307,7 @@ public class DataAccess implements AutoCloseable {
 		  {
 			  
 			  statement = connection.createStatement();
-			  query = "SELECT seatID FROM reservations WHERE (priceID IS NULL) OR (customerID IS NULL)";
+			  query = "SELECT seatID FROM reservations WHERE (priceID IS NULL) OR (customer = '')";
 			  ResultSet rs = statement.executeQuery(query);
 			  connection.commit();
 			  
@@ -403,8 +403,69 @@ public class DataAccess implements AutoCloseable {
    * @throws DataAccessException if an unrecoverable error occurs
    */
   public List<Booking> getBookings(String customer) throws DataAccessException {
-    // TODO
-    return Collections.EMPTY_LIST;
+	  
+	  Statement statement = null;
+	  String query = null;
+	  List<Booking> bookingsDone = new ArrayList<>();
+	  
+	  try {
+		  connection.setAutoCommit(false);
+	  }
+	  
+	  catch(SQLException e) {
+		  System.err.println(e.getMessage());
+		  throw new DataAccessException(e);
+	  }
+	  
+	  try {
+		  statement = connection.createStatement();
+		  if(customer != "")
+		  {
+			  query = "SELECT seatID, customer, priceID, price FROM reservations INNER JOIN prices ON prices.priceID = reservations.priceID WHERE customer = " + customer;
+			  ResultSet rs = statement.executeQuery(query);
+			  connection.commit();
+			  
+			  while(rs.next())
+			  {
+				  bookingsDone.add(new Booking(rs.getInt(1), rs.getString(2), rs.getInt(3), rs.getInt(4)));
+			  }
+			  
+			  if(bookingsDone.size() != 0)
+			  {
+				  return bookingsDone;
+			  }
+			  else
+			  {
+				  return Collections.EMPTY_LIST;
+			  }
+		  }
+		  else 
+		  {
+			  query = "SELECT seatID, customer, priceID, price FROM reservations INNER JOIN prices ON prices.priceID = reservations.priceID";
+			  ResultSet rs = statement.executeQuery(query);
+			  connection.commit();
+			  
+			  while(rs.next())
+			  {
+				  bookingsDone.add(new Booking(rs.getInt(1), rs.getString(2), rs.getInt(3), rs.getInt(4)));
+			  }
+			  
+			  if(bookingsDone.size() != 0)
+			  {
+				  return bookingsDone;
+			  }
+			  else
+			  {
+				  return Collections.EMPTY_LIST;
+			  }
+		  }
+	  }
+	  
+	  catch(SQLException e){
+		  System.err.println(e.getMessage());
+		  throw new DataAccessException(e);
+	  }
+	  
   }
 
   /**
